@@ -8,23 +8,24 @@ class PMPro_Boomtrain {
     public $token;
     public $root = 'https://api.boomtrain.com';
     public $headers;
+    public $error;
 
-    public function __construct() {
+    function __construct() {
 
         //setup api
         $this->setOptions();
         $this->setToken();
     }
 
-    public function setToken() {
-
-        $ch = curl_init();
+    function setToken() {
 
         $url = $this->root . '/tokens';
 
         $fields = array(
             'username' => $this->username
         );
+
+        $ch = curl_init();
 
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -35,17 +36,20 @@ class PMPro_Boomtrain {
         curl_setopt($ch, CURLOPT_HTTPHEADER, $this->headers);
 
         $r = curl_exec($ch);
+        curl_close($ch);
 
         if($r) {
             $r = json_decode($r);
-            $this->token = $r->token;
+            if(!empty($r->token)) {
+                $this->token = $r->token;
+                return true;
+            }
+            $this->error = "$r->type: $r->message";
         }
-
-        curl_close($ch);
-        return true;
+        return false;
     }
 
-    public function setOptions() {
+    function setOptions() {
         $options = get_option( 'pmprobt_options' );
 
         if ( empty( $options ) || empty( $options['tracking_code'])
@@ -67,52 +71,59 @@ class PMPro_Boomtrain {
         return true;
     }
 
-    public function trackEvent($type = null, $fields = array()) {
+    function trackEvent($type, $email, $fields = null) {
 
-        //TODO: track bt_signup (PUT, POST, GET not allowed?)
-        if(empty($type))
+        if(empty($type) || empty($email))
             return false;
 
-        //get event API URL
-        $url = str_replace('api', 'events', $this->root);
-        $url .= "/$type/track";
+        $url = 'https://events.boomtrain.com/event/track';
 
         $ch = curl_init();
 
         $headers = $this->headers;
         $headers[] = 'Content-Type: application/json';
 
+        $postfields = array(
+            'type' => $type,
+            'email' => $email
+        );
+
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $fields);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfields);
         curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_setopt($ch, CURLOPT_USERPWD, "$this->username:$this->token");
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
         $r = curl_exec($ch);
-        $info = curl_getinfo($ch);
+//        $info = curl_getinfo($ch);
 
         curl_close($ch);
 
-        return true;
+        if($r == 'OK')
+            return true;
+        elseif(!empty($r))
+            $this->error = $r['type'] . ': ' . $r['message'];
+        return false;
     }
 
-    public function updatePerson($email, $fields = array()) {
+    function updatePerson($user_id, $fields = array()) {
 
-        if(empty($email))
+        if(empty($user_id))
             return false;
 
         //get persons API URL
         $url = $this->root .= '/persons';
 
         //get user
-        $user = get_user_by('email', $email);
+        $user = get_userdata($user_id);
 
         //allow filter for custom fields, etc.
         $fields = apply_filters('pmprobt_update_person_fields', $fields);
 
         //build attributes array
+        $atts = array();
         foreach($fields as $key=>$value) {
             $atts[] = array(
                 'op' => 'replace',
@@ -125,13 +136,12 @@ class PMPro_Boomtrain {
 
         //setup postfields
         $postfields = array(
-            'email' => '',
             'bsin' => '',
-            'app_member_id' => "$user->ID",
-            'firstName' => $user->first_name,
-            'lastName' => $user->last_name,
+            'appMemberId' => "$user_id",
             'attributes' => $atts
         );
+
+        fb($postfields, 'postfields');
 
         $headers = $this->headers;
         $headers[] = "Content-Type: application/json";
@@ -145,7 +155,50 @@ class PMPro_Boomtrain {
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
         $r = curl_exec($ch);
-
+        $info = curl_getinfo($ch);
         curl_close($ch);
+
+        fb($r, 'r');
+        fb($info, 'info');
+
+        if($r == 'OK')
+            return true;
+        elseif(!empty($r)) {
+            $r = json_decode($r);
+            $this->error = "$r->type: $r->message";
+        }
+
+        return false;
+    }
+    
+    function getPerson($email) {
+
+        if(empty($email))
+            return false;
+
+        //get url
+        $url = $this->root . '/person?email=' . $email;
+
+        $ch = curl_init();
+
+        $headers = $this->headers;
+
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+        curl_setopt($ch, CURLOPT_USERPWD, "$this->username:$this->token");
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+        $r = curl_exec($ch);
+        $info = curl_getinfo($ch);
+        curl_close($ch);
+
+        $person = json_decode($r);
+
+        if(!empty($person))
+            return $person;
+        elseif(!empty($r))
+            $this->error = "$r->type: $r->message";
+        return false;
     }
 }

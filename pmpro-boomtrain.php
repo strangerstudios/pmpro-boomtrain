@@ -9,15 +9,11 @@
 
 //init
 function pmprobt_init() {
-    global $boomtrain;
-
 	//include PMPro_Boomtrain if we don't have it already
 	if(!class_exists("PMPro_Boomtrain"))
 		require_once(dirname(__FILE__) . "/includes/PMPro_Boomtrain.php");
     else
         return false;
-
-    $boomtrain = new PMPro_Boomtrain();
 }
 add_action( "init", "pmprobt_init", 0 );
 
@@ -55,50 +51,60 @@ function pmprobt_wp_footer() {
 }
 add_action('wp_footer', 'pmprobt_wp_footer');
 
-//add user on register and track signup
-function pmprobt_user_register( $user_id ) {
+//update person on register or level change
+function pmprobt_person_update($user_id, $level_id = null) {
 
-    global $signup_flag;
+    global $flag;
 
-    $api = new PMPro_Boomtrain();
+    //switch if a 2nd param was passed (pmpro_after_change_membership_level)
+    if(!empty($level_id))
+        $user_id = $level_id;
+
+    //get user
     $user = get_userdata($user_id);
-    $api->updatePerson($user->user_email);
+    $level = pmpro_getMembershipLevelForUser($user_id);
 
-    //make sure we don't track signup again if changing level
-//    $signup_flag = true;
-//    $api->trackEvent('bt_signup');
-}
-add_action('user_register', 'pmprobt_user_register');
-
-//subscribe new members (PMPro) when they register
-function pmprobt_after_change_membership_level( $level_id, $user_id ) {
-
-    global $signup_flag;
-
-    $api = new PMPro_Boomtrain();
-
-    //get user and level objects
-    $user = get_userdata($user_id);
-
+    //setup some fields
     $fields = array(
-        'membership_level' => $level_id
+        'firstName' => $user->first_name,
+        'lastName' => $user->last_name,
+        'email' => $user->user_email
     );
 
-    $api->updatePerson($user->user_email, $fields);
+    if(!empty($level))
+        $fields['membership_level'] = $level->id;
 
-//    if(!$signup_flag)
-//        $api->trackEvent('bt_signup');
+    $api = new PMPro_Boomtrain();
+
+    //does person already exist?
+    $person = $api->getPerson($user->user_email);
+
+    if(empty($person->appMemberId)) {
+        $fields['bt_signup'] = true;
+        $fields['bt_signup_timestamp'] = current_time('timestamp');
+    }
+
+    //update person
+    $api->updatePerson($user_id, $fields);
+
+    if(empty($person->appMemberId))
+        $api->trackEvent('bt_signup', $user->user_email);
+
+    if($flag)
+        die();
+
+    $flag = 1;
 }
-add_action('pmpro_after_change_membership_level', 'pmprobt_after_change_membership_level', 10, 2);
+add_action('user_register', 'pmprobt_person_update');
+add_action('pmpro_after_change_membership_level', 'pmprobt_person_update', 10, 2);
 
 //change email in Boomtrain if a user's email is changed in WordPress
 function pmprobt_profile_update( $user_id, $old_user_data ) {
-    global $boomtrain;
 	$new_user_data = get_userdata( $user_id );
 	if ( $new_user_data->user_email != $old_user_data->user_email )
-        $boomtrain->updateEmail($old_user_data->user_email, $new_user_data->user_email);
+        pmprobt_person_update($user_id);
 }
-//add_action( "profile_update", "pmprobt_profile_update", 10, 2 );
+add_action( "profile_update", "pmprobt_profile_update", 10, 2 );
 
 //admin init. registers settings
 function pmprobt_admin_init() {
