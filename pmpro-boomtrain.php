@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: PMPro Boomtrain
+ * Plugin Name: Paid Memberships Pro - Boomtrain Add On
  * Description: Integrate Paid Memberships Pro with Boomtrain personalized marketing campaigns.
  * Author: Stranger Studios
  * Author URI: http://strangerstudios.com
@@ -13,7 +13,7 @@ function pmprobt_init() {
 
 	//include PMPro_Boomtrain if we don't have it already
 	if(!class_exists("PMPro_Boomtrain"))
-		require_once(dirname(__FILE__) . "/includes/PMPro_Boomtrain.php");
+		require_once(dirname(__FILE__) . "/includes/class.PMPro_Boomtrain.php");
     else
         return false;
 
@@ -57,16 +57,14 @@ add_action('wp_footer', 'pmprobt_wp_footer');
 
 //add user on register and track signup
 function pmprobt_user_register( $user_id ) {
-
-    global $signup_flag;
-
+    
     $api = new PMPro_Boomtrain();
     $user = get_userdata($user_id);
     $api->updatePerson($user->user_email);
 
-    //make sure we don't track signup again if changing level
-//    $signup_flag = true;
-//    $api->trackEvent('bt_signup');
+    //make sure we don't track signup again if changing level	
+	$api->trackEvent('bt_signup');
+	update_user_meta($user_id, "bt_signup_tracked", true);
 }
 add_action('user_register', 'pmprobt_user_register');
 
@@ -86,8 +84,12 @@ function pmprobt_after_change_membership_level( $level_id, $user_id ) {
 
     $api->updatePerson($user->user_email, $fields);
 
-//    if(!$signup_flag)
-//        $api->trackEvent('bt_signup');
+	$signup_tracked = get_user_meta($user_id, "bt_signup_tracked", true);
+	if(!$signup_tracked)
+	{
+		$api->trackEvent('bt_signup');
+		update_user_meta($user_id, "bt_signup_tracked", true);
+	}
 }
 add_action('pmpro_after_change_membership_level', 'pmprobt_after_change_membership_level', 10, 2);
 
@@ -96,9 +98,9 @@ function pmprobt_profile_update( $user_id, $old_user_data ) {
     global $boomtrain;
 	$new_user_data = get_userdata( $user_id );
 	if ( $new_user_data->user_email != $old_user_data->user_email )
-        $boomtrain->updateEmail($old_user_data->user_email, $new_user_data->user_email);
+        $boomtrain->updatePerson($old_user_data->user_email);
 }
-//add_action( "profile_update", "pmprobt_profile_update", 10, 2 );
+add_action( "profile_update", "pmprobt_profile_update", 10, 2 );
 
 //admin init. registers settings
 function pmprobt_admin_init() {
@@ -136,7 +138,7 @@ function pmprobt_option_username() {
 	} else {
 		$username = "";
 	}
-	echo "<input id='pmprobt_username' name='pmprobt_options[username]' type='text' value='" . $username . "' />";
+	echo "<input id='pmprobt_username' name='pmprobt_options[username]' type='text' size='80' value='" . $username . "' />";
 }
 
 function pmprobt_option_password() {
@@ -147,7 +149,7 @@ function pmprobt_option_password() {
     } else {
         $password = "";
     }
-    echo "<input id='pmprobt_password' name='pmprobt_options[password]' type='text' value='" . $password . "' />";
+    echo "<input id='pmprobt_password' name='pmprobt_options[password]' type='text' size='80' value='" . $password . "' />";
 }
 
 
@@ -169,7 +171,8 @@ function pmprobt_options_page() {
 	if ( empty( $options ) ) {
 		$options = array(
 			'tracking_code' => '',
-			'api_key'       => ''
+			'username'      => '',
+			'password'      => '',
 		);
 		update_option( "pmprobt_options", $options );
 	}
@@ -217,8 +220,9 @@ function pmprobt_activation() {
 	//defaults
 	if ( empty( $options ) ) {
 		$options = array(
-			"api_key"         => "",
-			"activation_code" => "",
+			'tracking_code' => '',
+			'username'      => '',
+			'password'      => '',
 		);
 		update_option( "pmprobt_options", $options );
 	}

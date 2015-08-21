@@ -18,7 +18,12 @@ class PMPro_Boomtrain {
 
     public function setToken() {
 
-        $ch = curl_init();
+        //bail if we don't have everything we need
+		if(empty($this->username) || empty($this->password) || empty($this->apikey))
+			return false;
+		
+		//okay connect to API		
+		$ch = curl_init();
 
         $url = $this->root . '/tokens';
 
